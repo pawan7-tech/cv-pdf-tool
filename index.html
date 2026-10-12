@@ -121,7 +121,7 @@
             </select>
           </div>
           <div>
-            <label for="pagesize-select">Paper size</label>
+            <label for="pagesize-select">Paper size (also used for photos)</label>
             <select id="pagesize-select">
               <option value="A4">A4 (most of the world)</option>
               <option value="letter">US Letter (USA, Canada)</option>
@@ -221,20 +221,15 @@
     <fieldset style="margin-top:16px">
       <legend>Image placement (applies to photos only)</legend>
       <div class="radio-row">
-        <label><input type="radio" name="placement" value="fit" checked>
-          <span><strong>Fit inside page (nothing cut off)</strong><br><span class="hint">Keeps the whole photo visible, with blank space if the shape differs from A4.</span></span></label>
-        <label><input type="radio" name="placement" value="edge">
-          <span><strong>Fit edge to edge (no margin)</strong><br><span class="hint">Like the first option, but the photo touches the page edges.</span></span></label>
-        <label><input type="radio" name="placement" value="fill">
-          <span><strong>Fill page (edges may be cut off)</strong><br><span class="hint">Covers the whole page. Use for full-bleed scans or photos where cropping is acceptable.</span></span></label>
+        <label><input type="radio" name="placement" value="contain" checked>
+          <span><strong>Fit inside page (keeps proportions)</strong><br><span class="hint">Whole photo visible, with small blank bands if the shape differs from the page.</span></span></label>
+        <label><input type="radio" name="placement" value="crop">
+          <span><strong>Fill page (crops edges)</strong><br><span class="hint">No blank space. The edges of the photo are cut off.</span></span></label>
+        <label><input type="radio" name="placement" value="stretch">
+          <span><strong>Stretch to fill exactly (distorts)</strong><br><span class="hint">Covers every part of the page, but squashes or stretches the photo.</span></span></label>
       </div>
-      <label for="paper" style="margin-top:14px">Page size for photos</label>
-      <select id="paper">
-        <option value="A4">A4</option>
-        <option value="letter">US Letter</option>
-      </select>
       <label style="margin-top:14px"><input type="checkbox" id="autorotate" checked style="margin-right:6px">Fix sideways phone photos automatically</label>
-      <p class="hint">Leave this ticked unless a photo that should be upright shows up rotated or flipped.</p>
+      <p class="hint">Photos use the paper size chosen in the CV tab (section 1). Leave the rotation fix ticked unless a photo shows up turned.</p>
     </fieldset>
 
     <label style="margin-top:8px">Files</label>
@@ -391,8 +386,7 @@ $('fileList').onclick = e => {
   renderList();
 };
 
-// Reads the photo's rotation tag (EXIF) and returns the orientation value (1 = normal).
-// Shallow parser: handles the common JPEG case only. Returns 1 if unsure.
+// Reads the phone's rotation tag (EXIF) from a JPEG. Returns 1 (normal) if unsure.
 async function readOrientation(bytes) {
   try {
     const v = new DataView(bytes);
@@ -420,7 +414,7 @@ async function readOrientation(bytes) {
   return 1;
 }
 
-// Loads the image into a canvas with the rotation applied, returns JPEG bytes.
+// Draws the JPEG onto a canvas with the rotation applied, returns new JPEG bytes.
 async function normaliseJpeg(blob, orientation) {
   const url = URL.createObjectURL(blob);
   try {
@@ -450,7 +444,6 @@ async function normaliseJpeg(blob, orientation) {
 }
 
 async function addImagePage(out, file) {
-  let bytes, asPng = false;
   let blob = file;
   if (isHeic(file)) {
     if (!window.heic2any) throw new Error('HEIC converter did not load. Check your internet connection.');
@@ -464,10 +457,9 @@ async function addImagePage(out, file) {
     throw new Error(`"${file.name}" is not a supported image. Use JPG, PNG or HEIC.`);
   }
 
-  bytes = new Uint8Array(await blob.arrayBuffer());
-  asPng = !isHeic(file) && isPng(file);
+  let bytes = new Uint8Array(await blob.arrayBuffer());
+  const asPng = !isHeic(file) && isPng(file);
 
-  // Rotate JPEGs upright if the phone stored a rotation tag and the option is ticked.
   if (!asPng && $('autorotate').checked) {
     const orientation = await readOrientation(bytes.buffer);
     if (orientation !== 1) {
@@ -486,564 +478,25 @@ async function addImagePage(out, file) {
     throw new Error(`Could not read image "${file.name}". Try re-saving it as a standard JPG or PNG.`);
   }
 
-  const paper = $('paper').value === 'letter'
-    ? { w: 612, h: 792 }   // US Letter in points
-    : { w: 595.28, h: 841.89 }; // A4 in points
+  const paper = $('pagesize-select').value === 'letter'
+    ? { w: 612, h: 792 }
+    : { w: 595.28, h: 841.89 };
   const mode = document.querySelector('input[name="placement"]:checked').value;
-  const margin = mode === 'fit' ? 36 : 0;
-
+  const margin = mode === 'contain' ? 18 : 0;
   const availW = paper.w - 2 * margin;
   const availH = paper.h - 2 * margin;
-  const scale = mode === 'fill'
-    ? Math.max(availW / img.width, availH / img.height)
-    : Math.min(availW / img.width, availH / img.height);
-  const w = img.width * scale, h = img.height * scale;
 
-  const page = out.addPage([paper.w, paper.h]);
-  page.drawImage(img, {
-    x: (paper.w - w) / 2,
-    y: (paper.h - h) / 2,
-    width: w,
-    height: h
-  });
-}
-
-$('mergeBtn').onclick = async () => {
-  if (files.length < 2) { setStatus('Add at least two files.'); return; }
-  if (!window.PDFLib) { setStatus('Could not load the PDF library. Check your internet connection.'); return; }
-  setStatus('Merging…');
-  try {
-    const { PDFDocument } = PDFLib;
-    const out = await PDFDocument.create();
-    for (const f of files) {
-      if (isPdf(f)) {
-        let src;
-        try {
-          src = await PDFDocument.load(await f.arrayBuffer());
-        } catch {
-          throw new Error(`Could not read "${f.name}". It may be password-protected or damaged.`);
-        }
-        const pages = await out.copyPages(src, src.getPageIndices());
-        pages.forEach(p => out.addPage(p));
-      } else {
-        setStatus(`Processing ${f.name}…`);
-        await addImagePage(out, f);
-      }
-    }
-    const bytes = await out.save();
-    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'merged.pdf';
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    setStatus(`Done: ${out.getPageCount()} pages merged.`);
-  } catch (err) {
-    setStatus(err.message);
+  let w, h;
+  if (mode === 'stretch') {
+    w = availW;
+    h = availH;
+  } else {
+    const scale = mode === 'crop'
+      ? Math.max(availW / img.width, availH / img.height)
+      : Math.min(availW / img.width, availH / img.height);
+    w = img.width * scale;
+    h = img.height * scale;
   }
-};
-</script>
-</body>
-</html><!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CV Maker & PDF Merger</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
-<style id="pagesize">@page { size: A4; margin: 12mm; }</style>
-<style>
-  [hidden] { display: none !important; }
-  * { box-sizing: border-box; }
-  body { font-family: system-ui, Arial, sans-serif; margin: 0; background: #f4f5f7; color: #222; }
-  header { background: #2c3e50; color: #fff; padding: 16px 24px; }
-  header h1 { margin: 0; font-size: 1.4rem; }
-  nav { display: flex; gap: 8px; padding: 12px 24px; background: #fff; border-bottom: 1px solid #ddd; }
-  nav button { padding: 8px 16px; border: 1px solid #2c3e50; background: #fff; cursor: pointer; border-radius: 4px; }
-  nav button.active { background: #2c3e50; color: #fff; }
-  main { padding: 24px; max-width: 1100px; margin: auto; }
-  fieldset { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 16px; margin: 0 0 16px; }
-  legend { font-weight: 700; padding: 0 6px; color: #2c3e50; }
-  label { display: block; font-weight: 600; margin: 10px 0 4px; }
-  input, textarea, select { width: 100%; padding: 8px; border: 1px solid #bbb; border-radius: 4px; font: inherit; background: #fff; }
-  input[type=color] { height: 38px; padding: 2px; }
-  input[type=checkbox], input[type=radio] { width: auto; }
-  textarea { min-height: 80px; resize: vertical; }
-  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
-  .hint { color: #666; font-size: 0.85rem; margin: 4px 0 0; }
-  .btn { padding: 10px 18px; background: #2c3e50; color: #fff; border: none; border-radius: 4px; cursor: pointer; margin-top: 12px; }
-  .btn-small { padding: 4px 8px; background: #eee; border: 1px solid #bbb; border-radius: 4px; cursor: pointer; }
-  .tips { background: #fff8e1; border: 1px solid #f0d78c; border-radius: 6px; padding: 12px 16px; margin: 0 0 16px; }
-  .tips h2 { margin: 0 0 6px; font-size: 1rem; }
-  .tips ul { margin: 0; padding-left: 20px; font-size: 0.9rem; }
-  .ok { color: #2e7d32; font-weight: 600; }
-  .radio-row { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
-  .radio-row label { font-weight: 400; margin: 0; display: flex; gap: 8px; align-items: flex-start; }
-  #fileList { padding-left: 0; list-style: none; }
-  #fileList li { display: flex; align-items: center; gap: 6px; padding: 8px; background: #fff; border: 1px solid #ddd; margin-bottom: 6px; border-radius: 4px; }
-  #fileList li span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-  /* CV preview */
-  #cv-preview { background: #fff; padding: 40px; margin-top: 24px; box-shadow: 0 1px 4px rgba(0,0,0,.15); min-height: 300px; --accent: #2c3e50; color: #222; line-height: 1.45; }
-  #cv-preview h1 { margin: 0; font-size: 1.9rem; }
-  #cv-preview h3 { margin: 18px 0 6px; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.06em; }
-  #cv-preview ul { margin: 4px 0 0; padding-left: 20px; }
-  #cv-preview p { margin: 4px 0; }
-  .role { font-size: 1.1rem; margin: 4px 0; }
-  .contact { font-size: 0.9rem; margin: 4px 0 0; }
-  .entry { margin-bottom: 10px; }
-  .entry-head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-  .entry-sub { color: #555; font-size: 0.9rem; }
-
-  /* Template: Classic */
-  .tpl-classic h3 { border-bottom: 1px solid var(--accent); padding-bottom: 2px; color: var(--accent); }
-  .tpl-classic .cv-head { border-bottom: 2px solid var(--accent); padding-bottom: 10px; }
-
-  /* Template: Modern */
-  .tpl-modern .cv-head { background: var(--accent); color: #fff; margin: -40px -40px 16px; padding: 28px 40px; }
-  .tpl-modern .cv-head .contact { color: #fff; opacity: 0.9; }
-  .tpl-modern h3 { color: var(--accent); border-left: 4px solid var(--accent); padding-left: 8px; }
-
-  /* Template: Minimal */
-  .tpl-minimal h3 { font-weight: 600; color: var(--accent); letter-spacing: 0.02em; text-transform: none; font-size: 1rem; }
-  .tpl-minimal .cv-head h1 { font-weight: 300; }
-
-  @media (max-width: 640px) {
-    .grid { grid-template-columns: 1fr; }
-    #cv-preview { padding: 20px; }
-    .tpl-modern .cv-head { margin: -20px -20px 16px; padding: 20px; }
-  }
-
-  @media print {
-    body * { visibility: hidden; }
-    #cv-preview, #cv-preview * { visibility: visible; }
-    #cv-preview { position: absolute; left: 0; top: 0; width: 100%; margin: 0; padding: 0; box-shadow: none; min-height: 0; }
-    .tpl-modern .cv-head { margin: 0; padding: 20px; }
-    header, nav, .no-print { display: none !important; }
-    -webkit-print-color-adjust: exact; print-color-adjust: exact;
-  }
-</style>
-</head>
-<body>
-<header><h1>CV Maker & PDF Merger</h1></header>
-<nav class="no-print">
-  <button data-tab="cv-tab" class="active">Make CV</button>
-  <button data-tab="merge-tab">Merge PDFs & Images</button>
-</nav>
-
-<main>
-  <!-- CV TAB -->
-  <section id="cv-tab">
-    <div class="tips no-print">
-      <h2>Before you print</h2>
-      <ul id="tips"></ul>
-    </div>
-
-    <form id="cv-form" class="no-print" onsubmit="return false">
-
-      <fieldset>
-        <legend>1. Layout and style</legend>
-        <div class="grid">
-          <div>
-            <label for="template">Template</label>
-            <select id="template">
-              <option value="classic">Classic: traditional, works for most fields</option>
-              <option value="modern">Modern: coloured header, good for design or marketing</option>
-              <option value="minimal">Minimal: light and clean, good for tech or research</option>
-            </select>
-          </div>
-          <div>
-            <label for="accent">Accent colour</label>
-            <input type="color" id="accent" value="#2c3e50">
-            <p class="hint">Dark blue, navy or dark green look most formal.</p>
-          </div>
-          <div>
-            <label for="font">Font</label>
-            <select id="font">
-              <option value="system-ui, Arial, sans-serif">Sans-serif (Arial style)</option>
-              <option value="Georgia, 'Times New Roman', serif">Serif (Georgia style)</option>
-              <option value="'Trebuchet MS', Verdana, sans-serif">Humanist (Trebuchet style)</option>
-            </select>
-          </div>
-          <div>
-            <label for="pagesize-select">Paper size</label>
-            <select id="pagesize-select">
-              <option value="A4">A4 (most of the world)</option>
-              <option value="letter">US Letter (USA, Canada)</option>
-            </select>
-            <p class="hint">Pick the size that matches where you're applying.</p>
-          </div>
-        </div>
-      </fieldset>
-
-      <fieldset>
-        <legend>2. Personal details</legend>
-        <div class="grid">
-          <div>
-            <label for="name">Full name</label>
-            <input id="name" placeholder="As you want it to appear to employers">
-          </div>
-          <div>
-            <label for="title">Target job title</label>
-            <input id="title" placeholder="e.g. Junior Accountant">
-            <p class="hint">Which job are you applying for? Recruiters read this first.</p>
-          </div>
-          <div>
-            <label for="email">Email</label>
-            <input id="email" type="email" placeholder="A professional address">
-          </div>
-          <div>
-            <label for="phone">Phone</label>
-            <input id="phone" placeholder="Include country code, e.g. +44 7700 900123">
-          </div>
-          <div>
-            <label for="location">City and country</label>
-            <input id="location" placeholder="Full street address is not needed">
-          </div>
-          <div>
-            <label for="linkedin">LinkedIn or portfolio (optional)</label>
-            <input id="linkedin" placeholder="linkedin.com/in/yourname">
-          </div>
-        </div>
-      </fieldset>
-
-      <fieldset>
-        <legend>3. Profile summary</legend>
-        <label for="summary">What are you best at, and what result have you delivered?</label>
-        <textarea id="summary" placeholder="e.g. Customer service specialist with 4 years' experience handling 60+ enquiries a day. Known for cutting complaint resolution time by a third."></textarea>
-        <p class="hint">Aim for 2 to 4 sentences: your role, your strongest skill, and one result. Avoid "hard-working" or "team player" on their own.</p>
-      </fieldset>
-
-      <fieldset>
-        <legend>4. Work experience</legend>
-        <label for="experience">One job per line, in this format:</label>
-        <textarea id="experience" placeholder="Role | Company | Dates | Main result&#10;Sales Assistant | Corner Shop | Jan 2021 - Mar 2023 | Grew weekly takings by 15% through a loyalty card scheme"></textarea>
-        <p class="hint">For each job, ask yourself: what changed because I was there? Use numbers where you can (percentages, counts, money, time saved). Start with a strong verb such as "Managed", "Reduced", "Built" or "Trained".</p>
-      </fieldset>
-
-      <fieldset>
-        <legend>5. Education</legend>
-        <label for="education">One qualification per line, in this format:</label>
-        <textarea id="education" placeholder="Qualification | Institution | Year&#10;BSc Business Studies | University of Example | 2021"></textarea>
-        <p class="hint">List your most recent or most relevant qualification first. Leave out school results unless you're a school leaver.</p>
-      </fieldset>
-
-      <fieldset>
-        <legend>6. Skills</legend>
-        <label for="skills">Skills, separated by commas</label>
-        <input id="skills" placeholder="e.g. Excel, Customer service, Spanish, Data entry">
-        <p class="hint">Only list skills you could talk about confidently in an interview. Match them to words in the job advert.</p>
-      </fieldset>
-
-      <fieldset>
-        <legend>7. Optional sections</legend>
-        <label for="certs">Certifications (one per line)</label>
-        <textarea id="certs" placeholder="e.g. First Aid at Work (2024)"></textarea>
-        <label for="languages">Languages (one per line)</label>
-        <textarea id="languages" placeholder="e.g. English (native), French (B2)"></textarea>
-        <p class="hint">For languages, use a level such as native, fluent, B2 or basic.</p>
-        <label for="projects">Projects (one per line)</label>
-        <textarea id="projects" placeholder="Project name | What you built or did | Result"></textarea>
-        <label for="references">References</label>
-        <input id="references" placeholder="e.g. Available on request">
-        <p class="hint">"Available on request" is standard. Only give contact details if you've asked those people first.</p>
-      </fieldset>
-    </form>
-
-    <div id="cv-preview"></div>
-    <div class="no-print" style="margin-top:12px">
-      <button type="button" class="btn" id="printBtn">Print / Save as PDF</button>
-      <p class="hint">In the print dialog, untick "Headers and footers" and choose "Save as PDF". Aim for one page for under 10 years' experience, and no more than two pages in any case.</p>
-    </div>
-  </section>
-
-  <!-- MERGE TAB -->
-  <section id="merge-tab" hidden>
-    <label for="pdfInput">Add PDF, JPG, PNG or HEIC files</label>
-    <input type="file" id="pdfInput" accept="application/pdf,image/jpeg,image/png,image/heic,image/heif,.heic,.heif,.jpg,.jpeg,.png" multiple>
-    <p class="hint">Use the arrows to set the order. Files are merged in the order shown. HEIC photos are converted to JPG automatically, which can take a few seconds for large photos.</p>
-
-    <fieldset style="margin-top:16px">
-      <legend>Image placement (applies to photos only)</legend>
-      <div class="radio-row">
-        <label><input type="radio" name="placement" value="fit" checked>
-          <span><strong>Fit inside page (nothing cut off)</strong><br><span class="hint">Keeps the whole photo visible, with blank space if the shape differs from A4.</span></span></label>
-        <label><input type="radio" name="placement" value="edge">
-          <span><strong>Fit edge to edge (no margin)</strong><br><span class="hint">Like the first option, but the photo touches the page edges.</span></span></label>
-        <label><input type="radio" name="placement" value="fill">
-          <span><strong>Fill page (edges may be cut off)</strong><br><span class="hint">Covers the whole page. Use for full-bleed scans or photos where cropping is acceptable.</span></span></label>
-      </div>
-      <label for="paper" style="margin-top:14px">Page size for photos</label>
-      <select id="paper">
-        <option value="A4">A4</option>
-        <option value="letter">US Letter</option>
-      </select>
-      <label style="margin-top:14px"><input type="checkbox" id="autorotate" checked style="margin-right:6px">Fix sideways phone photos automatically</label>
-      <p class="hint">Leave this ticked unless a photo that should be upright shows up rotated or flipped.</p>
-    </fieldset>
-
-    <label style="margin-top:8px">Files</label>
-    <ol id="fileList"></ol>
-    <button class="btn" id="mergeBtn">Merge and download</button>
-    <p id="status"></p>
-  </section>
-</main>
-
-<script>
-const $ = id => document.getElementById(id);
-const esc = s => String(s).replace(/[&<>"']/g, c =>
-  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const lines = t => t.split('\n').map(x => x.trim()).filter(Boolean);
-const val = id => $(id).value.trim();
-const parts = t => lines(t).map(l => l.split('|').map(s => s.trim()));
-
-// ---------- Tabs ----------
-document.querySelectorAll('nav button').forEach(btn => {
-  btn.onclick = () => {
-    document.querySelectorAll('nav button').forEach(b => b.classList.toggle('active', b === btn));
-    document.querySelectorAll('main > section').forEach(s => s.hidden = s.id !== btn.dataset.tab);
-  };
-});
-
-// ---------- Checks (rules of thumb, not a guarantee) ----------
-function checks() {
-  const w = [];
-  if (!val('name')) w.push('Add your full name.');
-  if (!val('email')) w.push('Add a professional email address.');
-  if (!val('title')) w.push('State the job title you are applying for.');
-  if (!val('summary')) w.push('Write a profile summary of 2 to 4 sentences.');
-  else if (val('summary').length < 120) w.push('Your summary is short. Add your strongest skill and one result.');
-  const exp = parts(val('experience'));
-  if (!exp.length) w.push('Add at least one work experience entry.');
-  exp.forEach((p, i) => {
-    const result = p.slice(3).join(' | ');
-    if (result && !/\d/.test(result))
-      w.push(`Experience ${i + 1}: add a number to the result (a percentage, count, money or time saved) if you can.`);
-  });
-  if (!val('skills')) w.push('Add skills that match the job advert.');
-  return w;
-}
-
-// ---------- CV rendering ----------
-function sectionBlock(title, html) {
-  return html ? `<h3>${title}</h3>${html}` : '';
-}
-function listOf(text) {
-  const items = lines(text);
-  return items.length ? `<ul>${items.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : '';
-}
-function experienceHtml() {
-  return parts(val('experience')).map(p => {
-    const [role = '', company = '', dates = ''] = p;
-    const result = p.slice(3).join(' | ');
-    return `<div class="entry">
-      <div class="entry-head"><strong>${esc(role)}</strong><span class="entry-sub">${esc(dates)}</span></div>
-      <div class="entry-sub">${esc(company)}</div>
-      ${result ? `<ul><li>${esc(result)}</li></ul>` : ''}
-    </div>`;
-  }).join('');
-}
-function educationHtml() {
-  return parts(val('education')).map(p => {
-    const [qual = '', inst = '', year = ''] = p;
-    return `<div class="entry">
-      <div class="entry-head"><strong>${esc(qual)}</strong><span class="entry-sub">${esc(year)}</span></div>
-      <div class="entry-sub">${esc(inst)}</div>
-    </div>`;
-  }).join('');
-}
-function projectsHtml() {
-  return parts(val('projects')).map(p => {
-    const [name = '', what = '', result = ''] = p;
-    return `<div class="entry"><strong>${esc(name)}</strong>${what ? ` - ${esc(what)}` : ''}${result ? `<ul><li>${esc(result)}</li></ul>` : ''}</div>`;
-  }).join('');
-}
-
-function renderCV() {
-  const pv = $('cv-preview');
-  pv.className = 'tpl-' + $('template').value;
-  pv.style.setProperty('--accent', $('accent').value);
-  pv.style.fontFamily = $('font').value;
-  $('pagesize').textContent = `@page { size: ${$('pagesize-select').value === 'letter' ? 'letter' : 'A4'}; margin: 12mm; }`;
-
-  const contact = [val('email'), val('phone'), val('location'), val('linkedin')]
-    .filter(Boolean).map(esc).join(' · ');
-  const skills = val('skills').split(',').map(s => s.trim()).filter(Boolean);
-
-  pv.innerHTML = `
-    <div class="cv-head">
-      <h1>${val('name') ? esc(val('name')) : 'Your Name'}</h1>
-      ${val('title') ? `<p class="role">${esc(val('title'))}</p>` : ''}
-      ${contact ? `<p class="contact">${contact}</p>` : ''}
-    </div>
-    ${sectionBlock('Profile', val('summary') ? `<p>${esc(val('summary'))}</p>` : '')}
-    ${sectionBlock('Experience', experienceHtml())}
-    ${sectionBlock('Education', educationHtml())}
-    ${sectionBlock('Skills', skills.length ? `<p>${skills.map(esc).join(' · ')}</p>` : '')}
-    ${sectionBlock('Certifications', listOf(val('certs')))}
-    ${sectionBlock('Languages', listOf(val('languages')))}
-    ${sectionBlock('Projects', projectsHtml())}
-    ${sectionBlock('References', val('references') ? `<p>${esc(val('references'))}</p>` : '')}
-  `;
-
-  const list = checks();
-  $('tips').innerHTML = list.length
-    ? list.map(x => `<li>${esc(x)}</li>`).join('')
-    : '<li class="ok">Nothing obvious to fix. Read it once more for typos before sending.</li>';
-}
-
-document.querySelectorAll('#cv-form input, #cv-form textarea, #cv-form select').forEach(el => {
-  el.addEventListener('input', renderCV);
-  el.addEventListener('change', renderCV);
-});
-$('printBtn').onclick = () => { renderCV(); window.print(); };
-renderCV();
-
-// ---------- PDF and image merge ----------
-let files = [];
-
-function renderList() {
-  $('fileList').innerHTML = files.map((f, i) => `
-    <li>
-      <span>${esc(f.name)}</span>
-      <button class="btn-small" data-act="up" data-i="${i}">↑</button>
-      <button class="btn-small" data-act="down" data-i="${i}">↓</button>
-      <button class="btn-small" data-act="del" data-i="${i}">✕</button>
-    </li>`).join('');
-}
-function setStatus(msg) { $('status').textContent = msg; }
-
-const isPdf  = f => f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
-const isHeic = f => /image\/hei[cf]/i.test(f.type) || /\.hei[cf]$/i.test(f.name);
-const isPng  = f => f.type === 'image/png' || /\.png$/i.test(f.name);
-const isJpg  = f => f.type === 'image/jpeg' || /\.jpe?g$/i.test(f.name);
-
-$('pdfInput').onchange = e => {
-  files.push(...e.target.files);
-  e.target.value = '';
-  renderList();
-  setStatus('');
-};
-
-$('fileList').onclick = e => {
-  const btn = e.target.closest('button');
-  if (!btn) return;
-  const i = Number(btn.dataset.i);
-  const act = btn.dataset.act;
-  if (act === 'del') files.splice(i, 1);
-  if (act === 'up' && i > 0) [files[i - 1], files[i]] = [files[i], files[i - 1]];
-  if (act === 'down' && i < files.length - 1) [files[i + 1], files[i]] = [files[i], files[i + 1]];
-  renderList();
-};
-
-// Reads the photo's rotation tag (EXIF) and returns the orientation value (1 = normal).
-// Shallow parser: handles the common JPEG case only. Returns 1 if unsure.
-async function readOrientation(bytes) {
-  try {
-    const v = new DataView(bytes);
-    if (v.getUint16(0) !== 0xFFD8) return 1;
-    let off = 2;
-    while (off < v.byteLength) {
-      const marker = v.getUint16(off);
-      if (marker === 0xFFE1) {
-        const start = off + 4;
-        if (v.getUint32(start) !== 0x45786966) return 1; // "Exif"
-        const tiff = start + 6;
-        const little = v.getUint16(tiff) === 0x4949;
-        const ifd = tiff + v.getUint32(tiff + 4, little);
-        const n = v.getUint16(ifd, little);
-        for (let i = 0; i < n; i++) {
-          const entry = ifd + 2 + i * 12;
-          if (v.getUint16(entry, little) === 0x0112) return v.getUint16(entry + 8, little);
-        }
-        return 1;
-      }
-      if ((marker & 0xFF00) !== 0xFF00) return 1;
-      off += 2 + v.getUint16(off + 2);
-    }
-  } catch {}
-  return 1;
-}
-
-// Loads the image into a canvas with the rotation applied, returns JPEG bytes.
-async function normaliseJpeg(blob, orientation) {
-  const url = URL.createObjectURL(blob);
-  try {
-    const img = await new Promise((res, rej) => {
-      const i = new Image();
-      i.onload = () => res(i);
-      i.onerror = () => rej(new Error('browser could not decode the image'));
-      i.src = url;
-    });
-    const swap = orientation >= 5 && orientation <= 8;
-    const w = swap ? img.height : img.width;
-    const h = swap ? img.width : img.height;
-    const c = document.createElement('canvas');
-    c.width = w; c.height = h;
-    const ctx = c.getContext('2d');
-    const m = {
-      2: [-1, 0, 0, 1, w, 0], 3: [-1, 0, 0, -1, w, h], 4: [1, 0, 0, -1, 0, h],
-      5: [0, 1, 1, 0, 0, 0],  6: [0, 1, -1, 0, h, 0],  7: [0, -1, -1, 0, h, w], 8: [0, -1, 1, 0, 0, w]
-    }[orientation];
-    if (m) ctx.setTransform(...m);
-    ctx.drawImage(img, 0, 0);
-    const out = await new Promise(res => c.toBlob(res, 'image/jpeg', 0.92));
-    return new Uint8Array(await out.arrayBuffer());
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
-
-async function addImagePage(out, file) {
-  let bytes, asPng = false;
-  let blob = file;
-  if (isHeic(file)) {
-    if (!window.heic2any) throw new Error('HEIC converter did not load. Check your internet connection.');
-    try {
-      const converted = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.92 });
-      blob = Array.isArray(converted) ? converted[0] : converted;
-    } catch {
-      throw new Error(`Could not convert "${file.name}". Try exporting it as JPG from your phone.`);
-    }
-  } else if (!isPng(file) && !isJpg(file)) {
-    throw new Error(`"${file.name}" is not a supported image. Use JPG, PNG or HEIC.`);
-  }
-
-  bytes = new Uint8Array(await blob.arrayBuffer());
-  asPng = !isHeic(file) && isPng(file);
-
-  // Rotate JPEGs upright if the phone stored a rotation tag and the option is ticked.
-  if (!asPng && $('autorotate').checked) {
-    const orientation = await readOrientation(bytes.buffer);
-    if (orientation !== 1) {
-      try {
-        bytes = await normaliseJpeg(new Blob([bytes], { type: 'image/jpeg' }), orientation);
-      } catch {
-        // If the browser can't decode it, keep the original bytes.
-      }
-    }
-  }
-
-  let img;
-  try {
-    img = asPng ? await out.embedPng(bytes) : await out.embedJpg(bytes);
-  } catch {
-    throw new Error(`Could not read image "${file.name}". Try re-saving it as a standard JPG or PNG.`);
-  }
-
-  const paper = $('paper').value === 'letter'
-    ? { w: 612, h: 792 }   // US Letter in points
-    : { w: 595.28, h: 841.89 }; // A4 in points
-  const mode = document.querySelector('input[name="placement"]:checked').value;
-  const margin = mode === 'fit' ? 36 : 0;
-
-  const availW = paper.w - 2 * margin;
-  const availH = paper.h - 2 * margin;
-  const scale = mode === 'fill'
-    ? Math.max(availW / img.width, availH / img.height)
-    : Math.min(availW / img.width, availH / img.height);
-  const w = img.width * scale, h = img.height * scale;
 
   const page = out.addPage([paper.w, paper.h]);
   page.drawImage(img, {
