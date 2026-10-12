@@ -30,6 +30,9 @@
   .tips h2 { margin: 0 0 6px; font-size: 1rem; }
   .tips ul { margin: 0; padding-left: 20px; font-size: 0.9rem; }
   .ok { color: #2e7d32; font-weight: 600; }
+  #fileList { padding-left: 0; list-style: none; }
+  #fileList li { display: flex; align-items: center; gap: 6px; padding: 8px; background: #fff; border: 1px solid #ddd; margin-bottom: 6px; border-radius: 4px; }
+  #fileList li span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   /* CV preview */
   #cv-preview { background: #fff; padding: 40px; margin-top: 24px; box-shadow: 0 1px 4px rgba(0,0,0,.15); min-height: 300px; --accent: #2c3e50; color: #222; line-height: 1.45; }
@@ -76,7 +79,7 @@
 <header><h1>CV Maker & PDF Merger</h1></header>
 <nav class="no-print">
   <button data-tab="cv-tab" class="active">Make CV</button>
-  <button data-tab="merge-tab">Merge PDFs</button>
+  <button data-tab="merge-tab">Merge PDFs & Images</button>
 </nav>
 
 <main>
@@ -114,7 +117,7 @@
             </select>
           </div>
           <div>
-            <label for="pagesize">Paper size</label>
+            <label for="pagesize-select">Paper size</label>
             <select id="pagesize-select">
               <option value="A4">A4 (most of the world)</option>
               <option value="letter">US Letter (USA, Canada)</option>
@@ -207,9 +210,9 @@
 
   <!-- MERGE TAB -->
   <section id="merge-tab" hidden>
-    <label for="pdfInput">Add PDF files</label>
-    <input type="file" id="pdfInput" accept="application/pdf" multiple>
-    <p class="hint">Use the arrows to set the order. Files are merged in the order shown.</p>
+    <label for="pdfInput">Add PDF, JPG or PNG files</label>
+    <input type="file" id="pdfInput" accept="application/pdf,image/jpeg,image/png" multiple>
+    <p class="hint">Each image becomes its own A4 page, centred with margins. Use the arrows to set the order. Files are merged in the order shown. HEIC photos from iPhones are not supported, so export them as JPG first.</p>
     <ol id="fileList"></ol>
     <button class="btn" id="mergeBtn">Merge and download</button>
     <p id="status"></p>
@@ -313,8 +316,9 @@ function renderCV() {
     ${sectionBlock('References', val('references') ? `<p>${esc(val('references'))}</p>` : '')}
   `;
 
-  $('tips').innerHTML = checks().length
-    ? checks().map(x => `<li>${esc(x)}</li>`).join('')
+  const list = checks();
+  $('tips').innerHTML = list.length
+    ? list.map(x => `<li>${esc(x)}</li>`).join('')
     : '<li class="ok">Nothing obvious to fix. Read it once more for typos before sending.</li>';
 }
 
@@ -325,19 +329,26 @@ document.querySelectorAll('#cv-form input, #cv-form textarea, #cv-form select').
 $('printBtn').onclick = () => { renderCV(); window.print(); };
 renderCV();
 
-// ---------- PDF merge ----------
+// ---------- PDF and image merge ----------
 let files = [];
 
 function renderList() {
   $('fileList').innerHTML = files.map((f, i) => `
-    <li style="display:flex;align-items:center;gap:6px;padding:8px;background:#fff;border:1px solid #ddd;margin-bottom:6px;border-radius:4px;">
-      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(f.name)}</span>
+    <li>
+      <span>${esc(f.name)}</span>
       <button class="btn-small" data-act="up" data-i="${i}">↑</button>
       <button class="btn-small" data-act="down" data-i="${i}">↓</button>
       <button class="btn-small" data-act="del" data-i="${i}">✕</button>
     </li>`).join('');
 }
 function setStatus(msg) { $('status').textContent = msg; }
+
+function isPng(file) {
+  return file.type === 'image/png' || /\.png$/i.test(file.name);
+}
+function isJpg(file) {
+  return file.type === 'image/jpeg' || /\.jpe?g$/i.test(file.name);
+}
 
 $('pdfInput').onchange = e => {
   files.push(...e.target.files);
@@ -357,22 +368,45 @@ $('fileList').onclick = e => {
   renderList();
 };
 
+// Puts one image on its own A4 page, scaled to fit inside the margins and centred.
+async function addImagePage(out, file) {
+  if (!isPng(file) && !isJpg(file)) {
+    throw new Error(`"${file.name}" is not a JPG or PNG image. Export HEIC or other formats as JPG first.`);
+  }
+  const bytes = await file.arrayBuffer();
+  let img;
+  try {
+    img = isPng(file) ? await out.embedPng(bytes) : await out.embedJpg(bytes);
+  } catch {
+    throw new Error(`Could not read image "${file.name}". Try re-saving it as a standard JPG or PNG.`);
+  }
+  const PAGE_W = 595.28, PAGE_H = 841.89, MARGIN = 36;
+  const scale = Math.min((PAGE_W - 2 * MARGIN) / img.width, (PAGE_H - 2 * MARGIN) / img.height);
+  const w = img.width * scale, h = img.height * scale;
+  const page = out.addPage([PAGE_W, PAGE_H]);
+  page.drawImage(img, { x: (PAGE_W - w) / 2, y: (PAGE_H - h) / 2, width: w, height: h });
+}
+
 $('mergeBtn').onclick = async () => {
-  if (files.length < 2) { setStatus('Add at least two PDF files.'); return; }
+  if (files.length < 2) { setStatus('Add at least two files.'); return; }
   if (!window.PDFLib) { setStatus('Could not load the PDF library. Check your internet connection.'); return; }
   setStatus('Merging…');
   try {
     const { PDFDocument } = PDFLib;
     const out = await PDFDocument.create();
     for (const f of files) {
-      let src;
-      try {
-        src = await PDFDocument.load(await f.arrayBuffer());
-      } catch {
-        throw new Error(`Could not read "${f.name}". It may be password-protected or damaged.`);
+      if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) {
+        let src;
+        try {
+          src = await PDFDocument.load(await f.arrayBuffer());
+        } catch {
+          throw new Error(`Could not read "${f.name}". It may be password-protected or damaged.`);
+        }
+        const pages = await out.copyPages(src, src.getPageIndices());
+        pages.forEach(p => out.addPage(p));
+      } else {
+        await addImagePage(out, f);
       }
-      const pages = await out.copyPages(src, src.getPageIndices());
-      pages.forEach(p => out.addPage(p));
     }
     const bytes = await out.save();
     const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
