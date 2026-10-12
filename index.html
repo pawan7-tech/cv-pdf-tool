@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CV Maker & PDF Merger</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<style id="pagesize">@page { size: A4; margin: 12mm; }</style>
 <style>
   [hidden] { display: none !important; }
   * { box-sizing: border-box; }
@@ -14,31 +15,60 @@
   nav { display: flex; gap: 8px; padding: 12px 24px; background: #fff; border-bottom: 1px solid #ddd; }
   nav button { padding: 8px 16px; border: 1px solid #2c3e50; background: #fff; cursor: pointer; border-radius: 4px; }
   nav button.active { background: #2c3e50; color: #fff; }
-  main { padding: 24px; max-width: 1000px; margin: auto; }
-  label { display: block; font-weight: 600; margin: 12px 0 4px; }
-  input, textarea { width: 100%; padding: 8px; border: 1px solid #bbb; border-radius: 4px; font: inherit; }
+  main { padding: 24px; max-width: 1100px; margin: auto; }
+  fieldset { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 16px; margin: 0 0 16px; }
+  legend { font-weight: 700; padding: 0 6px; color: #2c3e50; }
+  label { display: block; font-weight: 600; margin: 10px 0 4px; }
+  input, textarea, select { width: 100%; padding: 8px; border: 1px solid #bbb; border-radius: 4px; font: inherit; background: #fff; }
+  input[type=color] { height: 38px; padding: 2px; }
   textarea { min-height: 80px; resize: vertical; }
-  .btn { padding: 10px 18px; background: #2c3e50; color: #fff; border: none; border-radius: 4px; cursor: pointer; margin-top: 12px; }
-  .btn-small { padding: 4px 8px; background: #eee; border: 1px solid #bbb; border-radius: 4px; cursor: pointer; }
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
   .hint { color: #666; font-size: 0.85rem; margin: 4px 0 0; }
-  #cv-preview { background: #fff; padding: 40px; margin-top: 24px; box-shadow: 0 1px 4px rgba(0,0,0,.15); min-height: 300px; }
-  #cv-preview h1 { margin: 0; font-size: 1.8rem; }
-  #cv-preview h3 { border-bottom: 1px solid #ccc; padding-bottom: 2px; margin: 18px 0 6px; text-transform: uppercase; font-size: 0.95rem; letter-spacing: 0.05em; }
-  #cv-preview ul { margin: 0; padding-left: 20px; }
-  .role { font-size: 1.1rem; color: #555; margin: 4px 0; }
-  .contact { color: #555; font-size: 0.9rem; margin: 0; }
-  #fileList { padding-left: 0; list-style: none; }
-  #fileList li { display: flex; align-items: center; gap: 6px; padding: 8px; background: #fff; border: 1px solid #ddd; margin-bottom: 6px; border-radius: 4px; }
-  #fileList li span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #status { margin-top: 12px; font-weight: 600; }
-  @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } #cv-preview { padding: 20px; } }
+  .btn { padding: 10px 18px; background: #2c3e50; color: #fff; border: none; border-radius: 4px; cursor: pointer; margin-top: 12px; }
+  .btn-small { padding: 4px 8px; background: #eee; border: 1px solid #bbb; border-radius: 4px; cursor: pointer; }
+  .tips { background: #fff8e1; border: 1px solid #f0d78c; border-radius: 6px; padding: 12px 16px; margin: 0 0 16px; }
+  .tips h2 { margin: 0 0 6px; font-size: 1rem; }
+  .tips ul { margin: 0; padding-left: 20px; font-size: 0.9rem; }
+  .ok { color: #2e7d32; font-weight: 600; }
+
+  /* CV preview */
+  #cv-preview { background: #fff; padding: 40px; margin-top: 24px; box-shadow: 0 1px 4px rgba(0,0,0,.15); min-height: 300px; --accent: #2c3e50; color: #222; line-height: 1.45; }
+  #cv-preview h1 { margin: 0; font-size: 1.9rem; }
+  #cv-preview h3 { margin: 18px 0 6px; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.06em; }
+  #cv-preview ul { margin: 4px 0 0; padding-left: 20px; }
+  #cv-preview p { margin: 4px 0; }
+  .role { font-size: 1.1rem; margin: 4px 0; }
+  .contact { font-size: 0.9rem; margin: 4px 0 0; }
+  .entry { margin-bottom: 10px; }
+  .entry-head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .entry-sub { color: #555; font-size: 0.9rem; }
+
+  /* Template: Classic */
+  .tpl-classic h3 { border-bottom: 1px solid var(--accent); padding-bottom: 2px; color: var(--accent); }
+  .tpl-classic .cv-head { border-bottom: 2px solid var(--accent); padding-bottom: 10px; }
+
+  /* Template: Modern */
+  .tpl-modern .cv-head { background: var(--accent); color: #fff; margin: -40px -40px 16px; padding: 28px 40px; }
+  .tpl-modern .cv-head .contact { color: #fff; opacity: 0.9; }
+  .tpl-modern h3 { color: var(--accent); border-left: 4px solid var(--accent); padding-left: 8px; }
+
+  /* Template: Minimal */
+  .tpl-minimal h3 { font-weight: 600; color: var(--accent); letter-spacing: 0.02em; text-transform: none; font-size: 1rem; }
+  .tpl-minimal .cv-head h1 { font-weight: 300; }
+
+  @media (max-width: 640px) {
+    .grid { grid-template-columns: 1fr; }
+    #cv-preview { padding: 20px; }
+    .tpl-modern .cv-head { margin: -20px -20px 16px; padding: 20px; }
+  }
 
   @media print {
     body * { visibility: hidden; }
     #cv-preview, #cv-preview * { visibility: visible; }
-    #cv-preview { position: absolute; left: 0; top: 0; width: 100%; margin: 0; padding: 20px; box-shadow: none; }
+    #cv-preview { position: absolute; left: 0; top: 0; width: 100%; margin: 0; padding: 0; box-shadow: none; min-height: 0; }
+    .tpl-modern .cv-head { margin: 0; padding: 20px; }
     header, nav, .no-print { display: none !important; }
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
 </style>
 </head>
@@ -52,26 +82,127 @@
 <main>
   <!-- CV TAB -->
   <section id="cv-tab">
+    <div class="tips no-print">
+      <h2>Before you print</h2>
+      <ul id="tips"></ul>
+    </div>
+
     <form id="cv-form" class="no-print" onsubmit="return false">
-      <div class="grid">
-        <div><label for="name">Full name</label><input id="name"></div>
-        <div><label for="title">Job title</label><input id="title"></div>
-        <div><label for="email">Email</label><input id="email" type="email"></div>
-        <div><label for="phone">Phone</label><input id="phone"></div>
-        <div><label for="location">Location</label><input id="location"></div>
-      </div>
-      <label for="summary">Summary</label>
-      <textarea id="summary" placeholder="2–4 sentences about you"></textarea>
-      <label for="experience">Experience</label>
-      <textarea id="experience" placeholder="One entry per line, e.g.&#10;Cashier, Corner Shop (2021–2023): handled cash and stock"></textarea>
-      <label for="education">Education</label>
-      <textarea id="education" placeholder="One entry per line"></textarea>
-      <label for="skills">Skills</label>
-      <input id="skills" placeholder="Comma-separated, e.g. Excel, Customer service, Spanish">
-      <p class="hint">Print tip: in the print dialog, untick "Headers and footers" and choose "Save as PDF".</p>
-      <button type="button" class="btn" id="printBtn">Print / Save as PDF</button>
+
+      <fieldset>
+        <legend>1. Layout and style</legend>
+        <div class="grid">
+          <div>
+            <label for="template">Template</label>
+            <select id="template">
+              <option value="classic">Classic: traditional, works for most fields</option>
+              <option value="modern">Modern: coloured header, good for design or marketing</option>
+              <option value="minimal">Minimal: light and clean, good for tech or research</option>
+            </select>
+          </div>
+          <div>
+            <label for="accent">Accent colour</label>
+            <input type="color" id="accent" value="#2c3e50">
+            <p class="hint">Dark blue, navy or dark green look most formal.</p>
+          </div>
+          <div>
+            <label for="font">Font</label>
+            <select id="font">
+              <option value="system-ui, Arial, sans-serif">Sans-serif (Arial style)</option>
+              <option value="Georgia, 'Times New Roman', serif">Serif (Georgia style)</option>
+              <option value="'Trebuchet MS', Verdana, sans-serif">Humanist (Trebuchet style)</option>
+            </select>
+          </div>
+          <div>
+            <label for="pagesize">Paper size</label>
+            <select id="pagesize-select">
+              <option value="A4">A4 (most of the world)</option>
+              <option value="letter">US Letter (USA, Canada)</option>
+            </select>
+            <p class="hint">Pick the size that matches where you're applying.</p>
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>2. Personal details</legend>
+        <div class="grid">
+          <div>
+            <label for="name">Full name</label>
+            <input id="name" placeholder="As you want it to appear to employers">
+          </div>
+          <div>
+            <label for="title">Target job title</label>
+            <input id="title" placeholder="e.g. Junior Accountant">
+            <p class="hint">Which job are you applying for? Recruiters read this first.</p>
+          </div>
+          <div>
+            <label for="email">Email</label>
+            <input id="email" type="email" placeholder="A professional address">
+          </div>
+          <div>
+            <label for="phone">Phone</label>
+            <input id="phone" placeholder="Include country code, e.g. +44 7700 900123">
+          </div>
+          <div>
+            <label for="location">City and country</label>
+            <input id="location" placeholder="Full street address is not needed">
+          </div>
+          <div>
+            <label for="linkedin">LinkedIn or portfolio (optional)</label>
+            <input id="linkedin" placeholder="linkedin.com/in/yourname">
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>3. Profile summary</legend>
+        <label for="summary">What are you best at, and what result have you delivered?</label>
+        <textarea id="summary" placeholder="e.g. Customer service specialist with 4 years' experience handling 60+ enquiries a day. Known for cutting complaint resolution time by a third."></textarea>
+        <p class="hint">Aim for 2 to 4 sentences: your role, your strongest skill, and one result. Avoid "hard-working" or "team player" on their own.</p>
+      </fieldset>
+
+      <fieldset>
+        <legend>4. Work experience</legend>
+        <label for="experience">One job per line, in this format:</label>
+        <textarea id="experience" placeholder="Role | Company | Dates | Main result&#10;Sales Assistant | Corner Shop | Jan 2021 - Mar 2023 | Grew weekly takings by 15% through a loyalty card scheme"></textarea>
+        <p class="hint">For each job, ask yourself: what changed because I was there? Use numbers where you can (percentages, counts, money, time saved). Start with a strong verb such as "Managed", "Reduced", "Built" or "Trained".</p>
+      </fieldset>
+
+      <fieldset>
+        <legend>5. Education</legend>
+        <label for="education">One qualification per line, in this format:</label>
+        <textarea id="education" placeholder="Qualification | Institution | Year&#10;BSc Business Studies | University of Example | 2021"></textarea>
+        <p class="hint">List your most recent or most relevant qualification first. Leave out school results unless you're a school leaver.</p>
+      </fieldset>
+
+      <fieldset>
+        <legend>6. Skills</legend>
+        <label for="skills">Skills, separated by commas</label>
+        <input id="skills" placeholder="e.g. Excel, Customer service, Spanish, Data entry">
+        <p class="hint">Only list skills you could talk about confidently in an interview. Match them to words in the job advert.</p>
+      </fieldset>
+
+      <fieldset>
+        <legend>7. Optional sections</legend>
+        <label for="certs">Certifications (one per line)</label>
+        <textarea id="certs" placeholder="e.g. First Aid at Work (2024)"></textarea>
+        <label for="languages">Languages (one per line)</label>
+        <textarea id="languages" placeholder="e.g. English (native), French (B2)"></textarea>
+        <p class="hint">For languages, use a level such as native, fluent, B2 or basic.</p>
+        <label for="projects">Projects (one per line)</label>
+        <textarea id="projects" placeholder="Project name | What you built or did | Result"></textarea>
+        <label for="references">References</label>
+        <input id="references" placeholder="e.g. Available on request">
+        <p class="hint">"Available on request" is standard. Only give contact details if you've asked those people first.</p>
+      </fieldset>
     </form>
+
     <div id="cv-preview"></div>
+    <div class="no-print" style="margin-top:12px">
+      <button type="button" class="btn" id="printBtn">Print / Save as PDF</button>
+      <p class="hint">In the print dialog, untick "Headers and footers" and choose "Save as PDF". Aim for one page for under 10 years' experience, and no more than two pages in any case.</p>
+    </div>
   </section>
 
   <!-- MERGE TAB -->
@@ -90,6 +221,8 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const lines = t => t.split('\n').map(x => x.trim()).filter(Boolean);
+const val = id => $(id).value.trim();
+const parts = t => lines(t).map(l => l.split('|').map(s => s.trim()));
 
 // ---------- Tabs ----------
 document.querySelectorAll('nav button').forEach(btn => {
@@ -99,30 +232,96 @@ document.querySelectorAll('nav button').forEach(btn => {
   };
 });
 
-// ---------- CV ----------
-function section(title, body) {
-  return body ? `<h3>${title}</h3>${body}` : '';
+// ---------- Checks (rules of thumb, not a guarantee) ----------
+function checks() {
+  const w = [];
+  if (!val('name')) w.push('Add your full name.');
+  if (!val('email')) w.push('Add a professional email address.');
+  if (!val('title')) w.push('State the job title you are applying for.');
+  if (!val('summary')) w.push('Write a profile summary of 2 to 4 sentences.');
+  else if (val('summary').length < 120) w.push('Your summary is short. Add your strongest skill and one result.');
+  const exp = parts(val('experience'));
+  if (!exp.length) w.push('Add at least one work experience entry.');
+  exp.forEach((p, i) => {
+    const result = p.slice(3).join(' | ');
+    if (result && !/\d/.test(result))
+      w.push(`Experience ${i + 1}: add a number to the result (a percentage, count, money or time saved) if you can.`);
+  });
+  if (!val('skills')) w.push('Add skills that match the job advert.');
+  return w;
 }
-function bulletList(text) {
+
+// ---------- CV rendering ----------
+function sectionBlock(title, html) {
+  return html ? `<h3>${title}</h3>${html}` : '';
+}
+function listOf(text) {
   const items = lines(text);
   return items.length ? `<ul>${items.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : '';
 }
-function renderCV() {
-  const v = id => $(id).value.trim();
-  const contact = [v('email'), v('phone'), v('location')].filter(Boolean).map(esc).join(' · ');
-  const skills = v('skills').split(',').map(s => s.trim()).filter(Boolean);
-  $('cv-preview').innerHTML = `
-    <h1>${v('name') ? esc(v('name')) : 'Your Name'}</h1>
-    ${v('title') ? `<p class="role">${esc(v('title'))}</p>` : ''}
-    ${contact ? `<p class="contact">${contact}</p>` : ''}
-    ${section('Summary', v('summary') ? `<p>${esc(v('summary'))}</p>` : '')}
-    ${section('Experience', bulletList(v('experience')))}
-    ${section('Education', bulletList(v('education')))}
-    ${section('Skills', skills.length ? `<p>${skills.map(esc).join(', ')}</p>` : '')}
-  `;
+function experienceHtml() {
+  return parts(val('experience')).map(p => {
+    const [role = '', company = '', dates = ''] = p;
+    const result = p.slice(3).join(' | ');
+    return `<div class="entry">
+      <div class="entry-head"><strong>${esc(role)}</strong><span class="entry-sub">${esc(dates)}</span></div>
+      <div class="entry-sub">${esc(company)}</div>
+      ${result ? `<ul><li>${esc(result)}</li></ul>` : ''}
+    </div>`;
+  }).join('');
 }
-document.querySelectorAll('#cv-form input, #cv-form textarea').forEach(el =>
-  el.addEventListener('input', renderCV));
+function educationHtml() {
+  return parts(val('education')).map(p => {
+    const [qual = '', inst = '', year = ''] = p;
+    return `<div class="entry">
+      <div class="entry-head"><strong>${esc(qual)}</strong><span class="entry-sub">${esc(year)}</span></div>
+      <div class="entry-sub">${esc(inst)}</div>
+    </div>`;
+  }).join('');
+}
+function projectsHtml() {
+  return parts(val('projects')).map(p => {
+    const [name = '', what = '', result = ''] = p;
+    return `<div class="entry"><strong>${esc(name)}</strong>${what ? ` - ${esc(what)}` : ''}${result ? `<ul><li>${esc(result)}</li></ul>` : ''}</div>`;
+  }).join('');
+}
+
+function renderCV() {
+  const pv = $('cv-preview');
+  pv.className = 'tpl-' + $('template').value;
+  pv.style.setProperty('--accent', $('accent').value);
+  pv.style.fontFamily = $('font').value;
+  $('pagesize').textContent = `@page { size: ${$('pagesize-select').value === 'letter' ? 'letter' : 'A4'}; margin: 12mm; }`;
+
+  const contact = [val('email'), val('phone'), val('location'), val('linkedin')]
+    .filter(Boolean).map(esc).join(' · ');
+  const skills = val('skills').split(',').map(s => s.trim()).filter(Boolean);
+
+  pv.innerHTML = `
+    <div class="cv-head">
+      <h1>${val('name') ? esc(val('name')) : 'Your Name'}</h1>
+      ${val('title') ? `<p class="role">${esc(val('title'))}</p>` : ''}
+      ${contact ? `<p class="contact">${contact}</p>` : ''}
+    </div>
+    ${sectionBlock('Profile', val('summary') ? `<p>${esc(val('summary'))}</p>` : '')}
+    ${sectionBlock('Experience', experienceHtml())}
+    ${sectionBlock('Education', educationHtml())}
+    ${sectionBlock('Skills', skills.length ? `<p>${skills.map(esc).join(' · ')}</p>` : '')}
+    ${sectionBlock('Certifications', listOf(val('certs')))}
+    ${sectionBlock('Languages', listOf(val('languages')))}
+    ${sectionBlock('Projects', projectsHtml())}
+    ${sectionBlock('References', val('references') ? `<p>${esc(val('references'))}</p>` : '')}
+  `;
+
+  $('tips').innerHTML = checks().length
+    ? checks().map(x => `<li>${esc(x)}</li>`).join('')
+    : '<li class="ok">Nothing obvious to fix. Read it once more for typos before sending.</li>';
+}
+
+document.querySelectorAll('#cv-form input, #cv-form textarea, #cv-form select').forEach(el => {
+  el.addEventListener('input', renderCV);
+  el.addEventListener('change', renderCV);
+});
 $('printBtn').onclick = () => { renderCV(); window.print(); };
 renderCV();
 
@@ -131,8 +330,8 @@ let files = [];
 
 function renderList() {
   $('fileList').innerHTML = files.map((f, i) => `
-    <li>
-      <span>${esc(f.name)}</span>
+    <li style="display:flex;align-items:center;gap:6px;padding:8px;background:#fff;border:1px solid #ddd;margin-bottom:6px;border-radius:4px;">
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(f.name)}</span>
       <button class="btn-small" data-act="up" data-i="${i}">↑</button>
       <button class="btn-small" data-act="down" data-i="${i}">↓</button>
       <button class="btn-small" data-act="del" data-i="${i}">✕</button>
